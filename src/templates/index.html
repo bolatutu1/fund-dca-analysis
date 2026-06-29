@@ -1,0 +1,282 @@
+{% extends "base.html" %}
+
+{% block title %}{{ page_title }}{% endblock %}
+
+{% block content %}
+<div class="home-layout">
+    <!-- 左侧：基金搜索 -->
+    <div class="home-left">
+        <div class="page-header" style="margin-bottom:16px;">
+            <h1 style="font-size:18px;">🔍 基金搜索</h1>
+            <p style="font-size:13px;">输入基金代码或名称，快速查找并分析</p>
+        </div>
+
+        <!-- 搜索框 -->
+        <div class="card search-card">
+            <div class="search-box">
+                <input type="text" class="form-input" id="searchInput"
+                       placeholder="输入基金代码或名称，如 000001 或 华夏"
+                       x-model="keyword"
+                       @keyup.enter="searchFund()">
+                <button class="btn btn-primary" @click="searchFund()" :disabled="searching">
+                    <span x-show="!searching">搜索</span>
+                    <span x-show="searching">搜索中...</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- 搜索结果 -->
+        <div x-show="results.length > 0" x-transition style="margin-top:16px;">
+            <div class="card result-card">
+                <div class="card-header">
+                    <span class="card-title">搜索结果 (<span x-text="results.length"></span>)</span>
+                </div>
+                <ul class="result-list">
+                    <template x-for="fund in results" :key="fund.fund_code">
+                        <li class="result-item" @click="selectFund(fund.fund_code)">
+                            <div style="display:flex;align-items:center;">
+                                <span class="fund-code" x-text="fund.fund_code"></span>
+                                <span class="fund-name" x-text="fund.fund_name"></span>
+                                <span class="fund-type" x-text="fund.fund_type"></span>
+                            </div>
+                            <div style="display:flex;gap:8px;align-items:center;">
+                                <button class="btn btn-sm" @click.stop="addToWatchlist(fund.fund_code, fund.fund_name)">
+                                    + 自选
+                                </button>
+                                <button class="btn btn-sm btn-primary" @click.stop="goAnalysis(fund.fund_code)">
+                                    分析
+                                </button>
+                            </div>
+                        </li>
+                    </template>
+                </ul>
+            </div>
+        </div>
+
+        <!-- 空状态 -->
+        <div x-show="results.length === 0 && searched && !searching" x-transition>
+            <div class="empty-state">
+                <div class="icon">📊</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 右侧：推荐基金和热门股票 -->
+    <div class="home-right">
+        <!-- 推荐基金 -->
+        <div class="page-header" style="margin-bottom:16px;">
+            <h1 style="font-size:18px;">⭐ 推荐基金</h1>
+            <p style="font-size:13px;">按近1周涨幅排序</p>
+        </div>
+
+        <div class="card" style="margin-bottom:20px;">
+            <div class="card-header">
+                <span class="card-title">基金排行</span>
+            </div>
+            <div x-show="loadingRecommend" class="loading">
+                <div class="spinner"></div>
+                <p>加载中...</p>
+            </div>
+            <div x-show="!loadingRecommend && recommendFunds.length === 0" class="empty-state">
+                <p>暂无数据</p>
+            </div>
+            <ul class="result-list" x-show="!loadingRecommend && recommendFunds.length > 0">
+                <template x-for="fund in recommendFunds" :key="fund.fund_code">
+                    <li class="result-item">
+                        <div style="display:flex;align-items:center;">
+                            <span class="fund-code" x-text="fund.fund_code"></span>
+                            <span class="fund-name" x-text="fund.fund_name"></span>
+                            <span class="fund-type" x-text="fund.fund_type"></span>
+                        </div>
+                        <div style="display:flex;gap:8px;align-items:center;">
+                            <span class="fund-type" style="color:var(--red);font-weight:600;">
+                                +<span x-text="fund.weekly_growth?.toFixed(2) || '0'"></span>%
+                            </span>
+                            <button class="btn btn-sm" @click="addToWatchlist(fund.fund_code, fund.fund_name)">
+                                + 自选
+                            </button>
+                            <button class="btn btn-sm btn-primary" @click="goAnalysis(fund.fund_code)">
+                                分析
+                            </button>
+                        </div>
+                    </li>
+                </template>
+            </ul>
+        </div>
+
+        <!-- 热门股票 -->
+        <div class="page-header" style="margin-bottom:16px;">
+            <h1 style="font-size:18px;">🔥 热门股票</h1>
+            <p style="font-size:13px;">东方财富热榜</p>
+        </div>
+
+        <div class="card">
+            <div class="card-header">
+                <span class="card-title">股票热榜</span>
+            </div>
+            <div x-show="loadingStocks" class="loading">
+                <div class="spinner"></div>
+                <p>加载中...</p>
+            </div>
+            <div x-show="!loadingStocks && hotStocks.length === 0" class="empty-state">
+                <p>暂无数据</p>
+            </div>
+            <ul class="result-list" x-show="!loadingStocks && hotStocks.length > 0">
+                <template x-for="stock in hotStocks" :key="stock.stock_code">
+                    <li class="result-item">
+                        <div style="display:flex;align-items:center;">
+                            <span class="fund-code" x-text="stock.stock_code"></span>
+                            <span class="fund-name" x-text="stock.stock_name"></span>
+                        </div>
+                        <div style="display:flex;gap:8px;align-items:center;">
+                            <span class="fund-type" style="color:var(--red);font-weight:600;">
+                                <span x-text="(stock.change_pct >= 0 ? '+' : '') + stock.change_pct?.toFixed(2) || '0'"></span>%
+                            </span>
+                            <span class="fund-type" x-text="'¥' + stock.price?.toFixed(2)"></span>
+                        </div>
+                    </li>
+                </template>
+            </ul>
+        </div>
+
+        <!-- 免责声明 -->
+        <div class="disclaimer" style="margin-top:16px;">
+            ⚠️ 免责声明：本网站提供的数据和分析结果仅供参考，不构成任何投资建议。基金有风险，投资需谨慎。
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('alpine:init', () => {
+    Alpine.data('searchPage', () => ({
+        keyword: '',
+        searching: false,
+        results: [],
+        searched: false,
+        recommendFunds: [],
+        hotStocks: [],
+        loadingRecommend: true,
+        loadingStocks: true,
+
+        async init() {
+            await Promise.all([
+                this.loadRecommend(),
+                this.loadStocks(),
+            ]);
+        },
+
+        async searchFund() {
+            if (!this.keyword.trim()) return;
+            this.searching = true;
+            this.searched = true;
+            try {
+                const resp = await fetch('/api/fund/search?keyword=' + encodeURIComponent(this.keyword));
+                const data = await resp.json();
+                this.results = data.results || [];
+            } catch (e) {
+                showToast('搜索失败: ' + e.message, 'error');
+            } finally {
+                this.searching = false;
+            }
+        },
+
+        selectFund(code) {
+            window.location.href = '/analysis?fund=' + code;
+        },
+
+        goAnalysis(code) {
+            window.location.href = '/analysis?fund=' + code;
+        },
+
+        async addToWatchlist(code, name) {
+            try {
+                const resp = await fetch('/api/watchlist/add?fund_code=' + encodeURIComponent(code), { method: 'POST' });
+                if (resp.ok) {
+                    showToast('已添加 ' + name + ' 到自选');
+                } else {
+                    const err = await resp.json();
+                    showToast(err.detail || '添加失败', 'error');
+                }
+            } catch (e) {
+                showToast('添加失败: ' + e.message, 'error');
+            }
+        },
+
+        async loadRecommend() {
+            this.loadingRecommend = true;
+            try {
+                const resp = await fetch('/api/fund/recommend');
+                const data = await resp.json();
+                this.recommendFunds = data.funds || [];
+            } catch (e) {
+                showToast('加载推荐基金失败', 'error');
+            } finally {
+                this.loadingRecommend = false;
+            }
+        },
+
+        async loadStocks() {
+            this.loadingStocks = true;
+            try {
+                const resp = await fetch('/api/fund/recommend');
+                const data = await resp.json();
+                this.hotStocks = data.stocks || [];
+            } catch (e) {
+                showToast('加载热门股票失败', 'error');
+            } finally {
+                this.loadingStocks = false;
+            }
+        },
+    }));
+});
+Alpine.init();
+</script>
+<style>
+[x-cloak] { display: none !important; }
+
+.home-layout {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+    align-items: start;
+}
+
+.home-left {
+    min-width: 0;
+}
+
+.home-right {
+    min-width: 0;
+}
+
+.search-card {
+    padding: 16px;
+}
+
+.result-card {
+    max-height: 600px;
+    overflow-y: auto;
+}
+
+.result-card::-webkit-scrollbar {
+    width: 6px;
+}
+
+.result-card::-webkit-scrollbar-track {
+    background: var(--bg-primary);
+}
+
+.result-card::-webkit-scrollbar-thumb {
+    background: var(--border-color);
+    border-radius: 3px;
+}
+
+@media (max-width: 900px) {
+    .home-layout {
+        grid-template-columns: 1fr;
+    }
+}
+</style>
+{% endblock %}

@@ -1,0 +1,186 @@
+﻿{% extends "base.html" %}
+
+{% block title %}{{ page_title }}{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>⭐ 自选基金</h1>
+    <p>管理你的自选基金列表，实时监控基金动态</p>
+</div>
+
+<!-- 搜索添加 -->
+<div class="card">
+    <div class="card-header">
+        <span class="card-title">添加到自选</span>
+    </div>
+    <div class="search-box">
+        <input type="text" class="form-input" id="watchSearchInput"
+               placeholder="输入基金代码或名称搜索..."
+               x-model="keyword"
+               @keyup.enter="searchFund()">
+        <button class="btn btn-primary" @click="searchFund()" :disabled="searching">搜索</button>
+    </div>
+</div>
+
+<!-- 搜索结果 -->
+<div x-show="searchResults.length > 0">
+    <div class="card">
+        <div class="card-header">
+            <span class="card-title">搜索结果</span>
+        </div>
+        <ul class="result-list">
+            <template x-for="fund in searchResults" :key="fund.fund_code">
+                <li class="result-item">
+                    <div style="display:flex;align-items:center;">
+                        <span class="fund-code" x-text="fund.fund_code"></span>
+                        <span class="fund-name" x-text="fund.fund_name"></span>
+                        <span class="fund-type" x-text="fund.fund_type"></span>
+                    </div>
+                    <button class="btn btn-sm btn-primary"
+                            @click="addFund(fund.fund_code, fund.fund_name)">
+                        + 加入自选
+                    </button>
+                </li>
+            </template>
+        </ul>
+    </div>
+</div>
+
+<!-- 自选列表 -->
+<div class="card" style="margin-top:16px;">
+    <div class="card-header">
+        <span class="card-title">我的自选 (<span x-text="watchlist.length"></span>)</span>
+    </div>
+    <template x-if="watchlist.length === 0">
+        <div class="empty-state">
+            <div class="icon">⭐</div>
+            <p>还没有自选基金，搜索并添加一只吧</p>
+        </div>
+    </template>
+    <template x-if="watchlist.length > 0">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>基金代码</th>
+                    <th>基金名称</th>
+                    <th>最新净值</th>
+                    <th>日增长率</th>
+                    <th>添加时间</th>
+                    <th>操作</th>
+                </tr>
+            </thead>
+            <tbody>
+                <template x-for="item in watchlist" :key="item.fund_code">
+                    <tr>
+                        <td><span class="fund-code" x-text="item.fund_code"></span></td>
+                        <td x-text="item.fund_name || item.fund_code"></td>
+                        <td x-text="item.current_nav ? item.current_nav.toFixed(4) : '-'"></td>
+                        <td>
+                            <span x-show="item.daily_change !== null && item.daily_change !== undefined"
+                                  :class="parseFloat(item.daily_change) >= 0 ? 'up' : 'down'"
+                                  x-text="(parseFloat(item.daily_change) >= 0 ? '+' : '') + item.daily_change + '%'">
+                            </span>
+                            <span x-show="item.daily_change === null || item.daily_change === undefined">-</span>
+                        </td>
+                        <td x-text="item.added_at ? new Date(item.added_at).toLocaleDateString('zh-CN') : '-'"></td>
+                        <td>
+                            <button class="btn btn-sm btn-danger" @click="removeFund(item.fund_code)">移除</button>
+                            <a class="btn btn-sm" href="/analysis?fund={{ '' }}" style="margin-left:4px;"
+                               onclick="window.location.href='/analysis?fund=' + this.dataset.code" data-fund-code=""
+                               :data-code="item.fund_code">分析</a>
+                        </td>
+                    </tr>
+                </template>
+            </tbody>
+        </table>
+    </template>
+</div>
+
+<!-- 免责声明 -->
+<div class="disclaimer">
+    ⚠️ 免责声明：自选基金列表中的净值数据来自 AKShare，可能存在延迟。
+    所有数据仅供参考，不构成投资建议。投资有风险，入市需谨慎。
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('alpine:init', () => {
+    Alpine.data('watchlistPage', () => ({
+        keyword: '',
+        searching: false,
+        searchResults: [],
+        watchlist: [],
+
+        async init() {
+            await this.loadWatchlist();
+        },
+
+        async loadWatchlist() {
+            try {
+                const resp = await fetch('/api/watchlist/list');
+                if (resp.ok) {
+                    this.watchlist = await resp.json();
+                }
+            } catch (e) {
+                console.error('加载自选列表失败:', e);
+            }
+        },
+
+        async searchFund() {
+            if (!this.keyword.trim()) return;
+            this.searching = true;
+            try {
+                const resp = await fetch('/api/fund/search?keyword=' + encodeURIComponent(this.keyword));
+                const data = await resp.json();
+                this.searchResults = data.results || [];
+            } catch (e) {
+                showToast('搜索失败', 'error');
+            } finally {
+                this.searching = false;
+            }
+        },
+
+        async addFund(code, name) {
+            try {
+                const resp = await fetch('/api/watchlist/add?fund_code=' + encodeURIComponent(code), {
+                    method: 'POST',
+                });
+                if (resp.ok) {
+                    showToast('已添加 ' + name + ' 到自选');
+                    this.searchResults = [];
+                    this.keyword = '';
+                    await this.loadWatchlist();
+                } else {
+                    const err = await resp.json();
+                    showToast(err.detail || '添加失败', 'error');
+                }
+            } catch (e) {
+                showToast('添加失败: ' + e.message, 'error');
+            }
+        },
+
+        async removeFund(code) {
+            try {
+                const resp = await fetch('/api/watchlist/remove?fund_code=' + encodeURIComponent(code), {
+                    method: 'DELETE',
+                });
+                if (resp.ok) {
+                    showToast('已移除 ' + code);
+                    await this.loadWatchlist();
+                } else {
+                    showToast('移除失败', 'error');
+                }
+            } catch (e) {
+                showToast('移除失败: ' + e.message, 'error');
+            }
+        },
+    }));
+});
+Alpine.init();
+</script>
+<style>
+[x-cloak] { display: none !important; }
+</style>
+{% endblock %}
+

@@ -1,0 +1,323 @@
+﻿{% extends "base.html" %}
+
+{% block title %}{{ page_title }}{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>📈 定投分析</h1>
+    <p>选择基金，设置定投参数，查看历史收益模拟</p>
+</div>
+
+<!-- 基金选择 -->
+<div class="card">
+    <div class="card-header">
+        <span class="card-title">选择基金</span>
+    </div>
+    <div class="form-row">
+        <div class="form-group">
+            <label class="form-label">基金代码</label>
+            <input type="text" class="form-input" id="fundCodeInput"
+                   placeholder="输入基金代码，如 000001"
+                   x-model="fundCode">
+        </div>
+        <div class="form-group" style="align-self:flex-end;">
+            <button class="btn btn-primary" @click="loadFundInfo()" :disabled="loading">
+                <span x-show="!loading">加载基金</span>
+                <span x-show="loading">加载中...</span>
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- 基金信息 & 定投参数 -->
+<div x-show="fundInfo" x-transition>
+    <div class="grid grid-2">
+        <!-- 基金信息 -->
+        <div class="card">
+            <div class="card-header">
+                <span class="card-title">基金信息</span>
+            </div>
+            <table class="data-table" style="font-family: inherit;">
+                <tr><td style="color:var(--text-secondary);font-family:inherit;">基金代码</td><td x-text="fundInfo?.fund_code || ''"></td></tr>
+                <tr><td style="color:var(--text-secondary);font-family:inherit;">基金名称</td><td x-text="fundInfo?.fund_name || ''"></td></tr>
+                <tr><td style="color:var(--text-secondary);font-family:inherit;">基金类型</td><td x-text="fundInfo?.fund_type || '-'"></td></tr>
+                <tr><td style="color:var(--text-secondary);font-family:inherit;">基金经理</td><td x-text="fundInfo?.manager || '-'"></td></tr>
+                <tr><td style="color:var(--text-secondary);font-family:inherit;">基金规模</td><td x-text="fundInfo?.size || '-'"></td></tr>
+                <tr><td style="color:var(--text-secondary);font-family:inherit;">评级</td><td x-text="fundInfo?.rating || '-'"></td></tr>
+            </table>
+        </div>
+
+        <!-- 定投参数 -->
+        <div class="card">
+            <div class="card-header">
+                <span class="card-title">定投参数</span>
+            </div>
+            <div class="form-group">
+                <label class="form-label">定投金额（元）</label>
+                <input type="number" class="form-input" x-model.number="amount" min="10" step="10">
+            </div>
+            <div class="form-group">
+                <label class="form-label">定投频率</label>
+                <select class="form-select" x-model="frequency">
+                    <option value="monthly">每月</option>
+                    <option value="weekly">每周</option>
+                    <option value="biweekly">每两周</option>
+                </select>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label class="form-label">起始日期</label>
+                    <input type="date" class="form-input" x-model="startDate">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">截止日期</label>
+                    <input type="date" class="form-input" x-model="endDate">
+                </div>
+            </div>
+            <button class="btn btn-primary" style="width:100%;margin-top:8px;"
+                    @click="runAnalysis()" :disabled="analyzing">
+                <span x-show="!analyzing">开始分析</span>
+                <span x-show="analyzing">分析中...</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- 分析结果 -->
+    <div x-show="result" x-transition>
+        <div class="card" style="margin-top:16px;">
+            <div class="card-header">
+                <span class="card-title">分析结果</span>
+                <span class="tag tag-blue" x-text="result?.times + ' 次定投'"></span>
+            </div>
+
+            <!-- 指标卡片 -->
+            <div class="grid grid-4" style="margin-bottom:20px;">
+                <div class="metric-card">
+                    <div class="metric-label">累计投入</div>
+                    <div class="metric-value accent" x-text="'¥' + (result?.total_invested || 0).toLocaleString()"></div>
+                    <div class="metric-sub" x-text="result?.times + ' 次定投'"></div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">当前市值</div>
+                    <div class="metric-value" x-text="'¥' + (result?.current_value || 0).toLocaleString()"></div>
+                    <div class="metric-sub">单位净值 ¥<span x-text="fundHistory?.length ? fundHistory[fundHistory.length-1]?.nav : '-'"></span></div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">总收益</div>
+                    <div class="metric-value" :class="(result?.profit || 0) >= 0 ? 'green' : 'red'"
+                         x-text="(result?.profit || 0) >= 0 ? '+' : '' + '¥' + (result?.profit || 0).toLocaleString()"></div>
+                    <div class="metric-sub" x-text="(result?.profit_rate || 0) >= 0 ? '+' : '' + (result?.profit_rate || 0).toFixed(2) + '%'"></div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">年化收益</div>
+                    <div class="metric-value" :class="(result?.annualized_return || 0) >= 0 ? 'green' : 'red'"
+                         x-text="(result?.annualized_return !== null && result?.annualized_return !== undefined) ? (result.annualized_return >= 0 ? '+' : '') + result.annualized_return.toFixed(2) + '%' : '-'"></div>
+                    <div class="metric-sub" x-text="result?.investment_days || 0 + ' 天'"></div>
+                </div>
+            </div>
+
+            <!-- 额外指标 -->
+            <div class="grid grid-3" style="margin-bottom:20px;">
+                <div class="metric-card">
+                    <div class="metric-label">最大回撤</div>
+                    <div class="metric-value red" x-text="result?.max_drawdown !== null ? '-' + result.max_drawdown.toFixed(2) + '%' : '-'"></div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">平均成本</div>
+                    <div class="metric-value" x-text="result?.avg_cost ? '¥' + result.avg_cost.toFixed(4) : '-'"></div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">投资天数</div>
+                    <div class="metric-value" x-text="result?.investment_days || 0"></div>
+                </div>
+            </div>
+
+            <!-- 图表 -->
+            <div class="chart-container" id="dcaChart"></div>
+        </div>
+    </div>
+</div>
+
+<!-- 免责声明 -->
+<div class="disclaimer">
+    ⚠️ 免责声明：以上分析结果为基于历史数据的模拟计算，仅供参考。基金过往业绩不代表未来表现，
+    定投也不能保证盈利。市场有风险，投资需谨慎。本工具不构成任何投资建议。
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+<script>
+document.addEventListener('alpine:init', () => {
+    Alpine.data('analysisPage', () => ({
+        fundCode: '{{ fund_code }}',
+        fundInfo: null,
+        fundHistory: [],
+        amount: 1000,
+        frequency: 'monthly',
+        startDate: '',
+        endDate: '',
+        analyzing: false,
+        result: null,
+        chart: null,
+
+        init() {
+            const today = new Date();
+            const twoYearsAgo = new Date();
+            twoYearsAgo.setFullYear(today.getFullYear() - 2);
+            this.startDate = twoYearsAgo.toISOString().split('T')[0];
+            this.endDate = today.toISOString().split('T')[0];
+
+            // 如果有 URL 参数中的基金代码，自动加载
+            if (this.fundCode) {
+                this.loadFundInfo();
+            }
+        },
+
+        async loadFundInfo() {
+            if (!this.fundCode.trim()) return;
+            try {
+                const resp = await fetch('/api/fund/detail/' + encodeURIComponent(this.fundCode));
+                if (!resp.ok) throw new Error('未找到该基金');
+                this.fundInfo = await resp.json();
+
+                // 同时加载历史净值
+                const histResp = await fetch('/api/fund/history/' + encodeURIComponent(this.fundCode) +
+                    '?start_date=' + this.startDate.replace(/-/g,'') +
+                    '&end_date=' + this.endDate.replace(/-/g,''));
+                if (histResp.ok) {
+                    const histData = await histResp.json();
+                    this.fundHistory = histData.history || [];
+                }
+            } catch (e) {
+                showToast(e.message, 'error');
+            }
+        },
+
+        async runAnalysis() {
+            if (!this.fundCode.trim()) {
+                showToast('请先输入基金代码', 'error');
+                return;
+            }
+            this.analyzing = true;
+            try {
+                const resp = await fetch('/api/analysis/dca', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        fund_code: this.fundCode.trim(),
+                        amount: this.amount,
+                        frequency: this.frequency,
+                        start_date: this.startDate + 'T00:00:00',
+                        end_date: this.endDate + 'T00:00:00',
+                    }),
+                });
+                if (!resp.ok) {
+                    const err = await resp.json();
+                    throw new Error(err.detail || '分析失败');
+                }
+                this.result = await resp.json();
+                this.renderChart();
+            } catch (e) {
+                showToast(e.message, 'error');
+            } finally {
+                this.analyzing = false;
+            }
+        },
+
+        renderChart() {
+            if (!this.result || !this.result.chart_data.length) return;
+
+            const dom = document.getElementById('dcaChart');
+            if (this.chart) this.chart.dispose();
+            this.chart = echarts.init(dom);
+
+            const data = this.result.chart_data;
+            const dates = data.map(d => d.date);
+            const values = data.map(d => d.value);
+            const invested = data.map(d => d.invested);
+            const profits = data.map(d => d.profit);
+
+            const option = {
+                backgroundColor: 'transparent',
+                tooltip: {
+                    trigger: 'axis',
+                    backgroundColor: 'rgba(26,39,51,0.95)',
+                    borderColor: '#2a3f52',
+                    textStyle: { color: '#e0e6ed', fontSize: 12 },
+                },
+                legend: {
+                    data: ['持仓市值', '累计投入', '收益'],
+                    textStyle: { color: '#8899aa', fontSize: 11 },
+                    top: 0,
+                },
+                grid: { left: 60, right: 20, top: 40, bottom: 30 },
+                xAxis: {
+                    type: 'category',
+                    data: dates,
+                    axisLine: { lineStyle: { color: '#2a3f52' } },
+                    axisLabel: { color: '#8899aa', fontSize: 11 },
+                },
+                yAxis: [
+                    {
+                        type: 'value',
+                        name: '金额 (元)',
+                        nameTextStyle: { color: '#8899aa' },
+                        axisLine: { lineStyle: { color: '#2a3f52' } },
+                        axisLabel: { color: '#8899aa', fontSize: 11 },
+                        splitLine: { lineStyle: { color: 'rgba(42,63,82,0.5)' } },
+                    },
+                    {
+                        type: 'value',
+                        name: '收益 (元)',
+                        nameTextStyle: { color: '#8899aa' },
+                        axisLine: { lineStyle: { color: '#2a3f52' } },
+                        axisLabel: { color: '#8899aa', fontSize: 11 },
+                        splitLine: { show: false },
+                    },
+                ],
+                series: [
+                    {
+                        name: '持仓市值',
+                        type: 'line',
+                        data: values,
+                        smooth: true,
+                        symbol: 'none',
+                        lineStyle: { width: 2, color: '#00b4d8' },
+                        areaStyle: {
+                            color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+                                { offset: 0, color: 'rgba(0,180,216,0.3)' },
+                                { offset: 1, color: 'rgba(0,180,216,0.02)' },
+                            ]),
+                        },
+                    },
+                    {
+                        name: '累计投入',
+                        type: 'line',
+                        data: invested,
+                        smooth: true,
+                        symbol: 'none',
+                        lineStyle: { width: 2, color: '#ffa502', type: 'dashed' },
+                    },
+                    {
+                        name: '收益',
+                        type: 'bar',
+                        yAxisIndex: 1,
+                        data: profits.map(v => v >= 0 ? v : -v),
+                        itemStyle: {
+                            color: p => p.data >= 0 ? '#ff4757' : '#00c896',
+                            borderRadius: [2, 2, 0, 0],
+                        },
+                    },
+                ],
+            };
+            this.chart.setOption(option);
+            window.addEventListener('resize', () => this.chart.resize());
+        },
+    }));
+});
+Alpine.init();
+</script>
+<style>[x-cloak] { display: none !important; }</style>
+{% endblock %}
+
